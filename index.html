@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트 일정 & To-Do 플래너 Pro</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDK (Compat Version) for Realtime Cloud Sync -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        apple: {
+                            bg: '#F5F5F7',
+                            card: '#FFFFFF',
+                            accent: '#0071E3',
+                            accentHover: '#0058B3',
+                            subtle: '#86868B',
+                            darkText: '#1D1D1F',
+                            border: '#E5E5EA',
+                            success: '#34C759',
+                            danger: '#FF3B30',
+                            warning: '#FF9500',
+                            purple: '#AF52DE',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', 'Helvetica Neue', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'apple-sm': '0 2px 8px rgba(0, 0, 0, 0.04)',
+                        'apple-md': '0 4px 16px rgba(0, 0, 0, 0.08)',
+                        'apple-lg': '0 12px 32px rgba(0, 0, 0, 0.12)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #D1D1D6;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #A1A1A6;
+        }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        .calendar-day-btn {
+            transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .calendar-day-btn:hover {
+            transform: translateY(-1px);
+        }
+    </style>
+</head>
+<body class="bg-apple-bg text-apple-darkText font-sans antialiased min-h-screen flex flex-col justify-between selection:bg-apple-accent selection:text-white">
+
+    <!-- Canvas for Pure Confetti Animation -->
+    <canvas id="confetti-canvas" class="fixed inset-0 pointer-events-none z-50 w-full h-full"></canvas>
+
+    <!-- Toast Notification Overlay -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <div class="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Top Navigation Header -->
+        <header class="glass-panel sticky top-4 z-30 rounded-3xl p-4 sm:p-5 border border-white/60 shadow-apple-sm flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-apple-accent text-white flex items-center justify-center shadow-md">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-apple-darkText">Smart Planner Pro</h1>
+                    <p class="text-xs text-apple-subtle font-medium" id="header-today-str">오늘 날짜 계산 중...</p>
+                </div>
+            </div>
+
+            <!-- Action Buttons Header -->
+            <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end text-xs font-semibold">
+                <!-- Push Notification Permission Toggle -->
+                <button id="btn-request-notification" class="px-3.5 py-2 rounded-2xl bg-white border border-apple-border text-apple-darkText hover:bg-gray-50 transition shadow-apple-sm flex items-center gap-1.5">
+                    <span id="notification-icon">🔔</span>
+                    <span id="notification-text">브라우저 알림 설정</span>
+                </button>
+                <!-- Realtime Cloud Sync Trigger -->
+                <button id="btn-open-cloud" class="px-3.5 py-2 rounded-2xl bg-white border border-apple-border text-apple-darkText hover:bg-gray-50 transition shadow-apple-sm flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-amber-400 inline-block" id="cloud-status-dot"></span>
+                    <span>⚡ 실시간 Cloud 연동</span>
+                </button>
+                <!-- Manual Data Backup Modal Trigger -->
+                <button id="btn-open-sync" class="px-3.5 py-2 rounded-2xl bg-white border border-apple-border text-apple-darkText hover:bg-gray-50 transition shadow-apple-sm flex items-center gap-1.5">
+                    <span>📱 백업/복원</span>
+                </button>
+                <!-- Export Apple Calendar -->
+                <button id="btn-export-all-ics" class="px-3.5 py-2 rounded-2xl bg-white border border-apple-border text-apple-darkText hover:bg-gray-50 transition shadow-apple-sm flex items-center gap-1.5">
+                    <svg class="w-4 h-4 text-apple-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                    <span>Apple 캘린더 (.ics)</span>
+                </button>
+                <!-- Report Modal Trigger -->
+                <button id="btn-open-report" class="px-4 py-2 rounded-2xl bg-apple-accent text-white hover:bg-apple-accentHover transition shadow-apple-sm flex items-center gap-1.5">
+                    <span>📋 리포트 보기</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- Left Panel: Monthly Calendar & Selected Date Events (7 Cols) -->
+            <section class="lg:col-span-7 space-y-6">
+                <!-- Monthly Calendar Card -->
+                <div class="bg-apple-card rounded-3xl p-5 sm:p-7 border border-apple-border shadow-apple-sm">
+                    <!-- Calendar Controls -->
+                    <div class="flex items-center justify-between mb-5">
+                        <div>
+                            <h2 class="text-2xl font-bold tracking-tight text-apple-darkText" id="calendar-month-year">2026년 10월</h2>
+                            <p class="text-xs text-apple-subtle">날짜를 클릭하여 해당 일정을 확인하세요</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button id="btn-today-cal" class="px-3 py-1.5 text-xs font-semibold rounded-xl bg-apple-bg hover:bg-gray-200 transition text-apple-darkText">오늘</button>
+                            <button id="btn-prev-month" class="p-2 rounded-xl bg-apple-bg hover:bg-gray-200 transition text-apple-darkText">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg>
+                            </button>
+                            <button id="btn-next-month" class="p-2 rounded-xl bg-apple-bg hover:bg-gray-200 transition text-apple-darkText">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Category Quick Filter Bar -->
+                    <div class="flex items-center gap-1.5 overflow-x-auto pb-3 mb-2 text-xs" id="category-filter-bar">
+                        <button data-cat="all" class="cat-filter-btn px-3 py-1 rounded-xl bg-apple-darkText text-white font-medium">전체 보기</button>
+                        <button data-cat="대외활동" class="cat-filter-btn px-3 py-1 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200">🚀 대외활동</button>
+                        <button data-cat="학교" class="cat-filter-btn px-3 py-1 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200">🏫 학교</button>
+                        <button data-cat="학회" class="cat-filter-btn px-3 py-1 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200">🔬 학회</button>
+                        <button data-cat="자격증" class="cat-filter-btn px-3 py-1 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200">📜 자격증</button>
+                        <button data-cat="근로" class="cat-filter-btn px-3 py-1 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200">💼 근로</button>
+                        <button data-cat="기타" class="cat-filter-btn px-3 py-1 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200">📌 기타</button>
+                    </div>
+
+                    <!-- Days of Week Header -->
+                    <div class="grid grid-cols-7 mb-2 text-center text-xs font-semibold text-apple-subtle">
+                        <div class="text-apple-danger py-2">일</div>
+                        <div class="py-2">월</div>
+                        <div class="py-2">화</div>
+                        <div class="py-2">수</div>
+                        <div class="py-2">목</div>
+                        <div class="py-2">금</div>
+                        <div class="text-apple-accent py-2">토</div>
+                    </div>
+
+                    <!-- Calendar Day Matrix Grid -->
+                    <div id="calendar-grid" class="grid grid-cols-7 gap-1 sm:gap-1.5">
+                        <!-- Dynamic Day Cells -->
+                    </div>
+                </div>
+
+                <!-- Selected Date Events Card -->
+                <div class="bg-apple-card rounded-3xl p-5 sm:p-6 border border-apple-border shadow-apple-sm">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-apple-accent"></span>
+                            <h3 class="font-bold text-sm text-apple-darkText" id="selected-date-title">선택된 날짜의 일정</h3>
+                        </div>
+                        <button id="btn-add-schedule-modal" class="px-3 py-1.5 rounded-xl bg-apple-accent/10 text-apple-accent hover:bg-apple-accent/20 text-xs font-semibold transition flex items-center gap-1">
+                            <span>+ 일정 추가</span>
+                        </button>
+                    </div>
+
+                    <div id="selected-date-events" class="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                        <!-- Dynamic Event Cards -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Today's To-Do & Daily Routine Generator (5 Cols) -->
+            <section class="lg:col-span-5 space-y-6">
+                <!-- Today's To-Do List Card -->
+                <div class="bg-apple-card rounded-3xl p-5 sm:p-6 border border-apple-border shadow-apple-sm flex flex-col">
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <h2 class="text-xl font-bold tracking-tight text-apple-darkText">오늘 해야 할 일</h2>
+                            <p class="text-xs text-apple-subtle">우선순위 및 카테고리로 효율적 관리</p>
+                        </div>
+                        <span id="todo-count-badge" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-apple-bg text-apple-subtle">
+                            0 / 0 완료
+                        </span>
+                    </div>
+
+                    <!-- To-Do Creation Form -->
+                    <form id="todo-form" class="space-y-2 mb-4">
+                        <input type="text" id="todo-input" placeholder="새로운 할 일 입력 (Enter로 바로 추가)..." required
+                            class="w-full px-4 py-2.5 rounded-2xl bg-apple-bg border border-transparent focus:border-apple-accent focus:bg-white focus:outline-none text-sm transition placeholder-apple-subtle">
+                        
+                        <div class="flex gap-2">
+                            <!-- Category Dropdown -->
+                            <select id="todo-category" class="flex-1 px-3 py-2 rounded-xl bg-apple-bg border border-apple-border text-xs text-apple-darkText focus:outline-none focus:border-apple-accent">
+                                <option value="학교">🏫 학교</option>
+                                <option value="대외활동">🚀 대외활동</option>
+                                <option value="학회">🔬 학회</option>
+                                <option value="자격증" selected>📜 자격증</option>
+                                <option value="근로">💼 근로</option>
+                                <option value="기타">📌 기타</option>
+                            </select>
+
+                            <!-- Priority Dropdown -->
+                            <select id="todo-priority" class="flex-1 px-3 py-2 rounded-xl bg-apple-bg border border-apple-border text-xs text-apple-darkText focus:outline-none focus:border-apple-accent">
+                                <option value="high">🔥 높음</option>
+                                <option value="medium" selected>⚡ 보통</option>
+                                <option value="low">🌱 낮음</option>
+                            </select>
+
+                            <!-- Recurrence Option -->
+                            <select id="todo-recurrence" class="w-24 px-2 py-2 rounded-xl bg-apple-bg border border-apple-border text-xs text-apple-darkText focus:outline-none focus:border-apple-accent">
+                                <option value="none">단일</option>
+                                <option value="daily">매일</option>
+                                <option value="weekly">매주</option>
+                                <option value="monthly">매월</option>
+                            </select>
+
+                            <button type="submit" class="px-4 py-2 rounded-xl bg-apple-accent text-white font-semibold text-xs hover:bg-apple-accentHover transition shadow-sm active:scale-95">
+                                추가
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Filter & Sort Bar -->
+                    <div class="flex items-center justify-between text-xs text-apple-subtle mb-3 px-1">
+                        <div class="flex items-center gap-2">
+                            <span class="font-medium">정렬:</span>
+                            <select id="todo-sort-select" class="bg-transparent font-medium text-apple-darkText focus:outline-none cursor-pointer">
+                                <option value="priority">우선순위순</option>
+                                <option value="newest">최신순</option>
+                            </select>
+                        </div>
+                        <button id="btn-clear-completed" class="hover:text-apple-danger transition">완료 항목 정리</button>
+                    </div>
+
+                    <!-- Dynamic To-Do List Container -->
+                    <div class="flex-1 overflow-y-auto max-h-[300px] pr-1 space-y-2" id="todo-list">
+                        <!-- JS Dynamic Items -->
+                    </div>
+                </div>
+
+                <!-- Location-Aware Daily Routine Generator Card -->
+                <div class="bg-apple-card rounded-3xl p-5 sm:p-6 border border-apple-border shadow-apple-sm space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xl">📍</span>
+                            <div>
+                                <h3 class="text-lg font-bold text-apple-darkText">위치 기반 스마트 하루 루틴</h3>
+                                <p class="text-xs text-apple-subtle">장소 간 이동시간 및 특이사항 자동 계산</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Customization Controls -->
+                    <div class="bg-apple-bg/70 p-3.5 rounded-2xl border border-apple-border/60 space-y-3">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-[11px] font-semibold text-apple-subtle mb-1">🚌 주 이동 수단</label>
+                                <select id="routine-transport-mode" class="w-full px-2.5 py-1.5 rounded-xl bg-white border border-apple-border text-xs text-apple-darkText">
+                                    <option value="transit" selected>🚌 대중교통 (버스/지하철)</option>
+                                    <option value="walk">🚶 도보 / 자전거</option>
+                                    <option value="car">🚗 자가용 / 택시</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-semibold text-apple-subtle mb-1">⚡ 집중 최적 시간대</label>
+                                <select id="routine-focus-peak" class="w-full px-2.5 py-1.5 rounded-xl bg-white border border-apple-border text-xs text-apple-darkText">
+                                    <option value="morning">아침 (09:00 - 12:00)</option>
+                                    <option value="afternoon" selected>오후 (13:00 - 17:00)</option>
+                                    <option value="evening">저녁 (18:00 - 22:00)</option>
+                                    <option value="night">야간 (22:00 - 01:00)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-1 text-xs">
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="routine-allow-multitask" checked class="w-4 h-4 rounded text-apple-accent accent-apple-accent">
+                                <label for="routine-allow-multitask" class="font-medium text-apple-darkText cursor-pointer">
+                                    💼 근로/공백 시간에 틈새 자습 병행
+                                </label>
+                            </div>
+                            <button id="btn-get-location" type="button" class="text-[11px] text-apple-accent font-semibold hover:underline">
+                                🎯 현재 위치 읽기
+                            </button>
+                        </div>
+                        <div id="gps-location-tag" class="hidden text-[10px] text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                            📍 현재 위치가 인식되었습니다.
+                        </div>
+                    </div>
+
+                    <button id="btn-generate-routine" class="w-full py-3 rounded-2xl bg-gradient-to-r from-apple-accent to-blue-600 text-white font-bold text-xs sm:text-sm hover:opacity-95 transition shadow-apple-sm flex items-center justify-center gap-2 active:scale-95">
+                        <span>✨ 위치 반영 하루 루틴 생성하기</span>
+                    </button>
+
+                    <!-- Routine Output View -->
+                    <div id="routine-timeline-output" class="hidden space-y-2 pt-2 border-t border-apple-border">
+                        <div class="flex items-center justify-between text-xs font-bold text-apple-darkText mb-2">
+                            <span>🕒 위치 기반 추천 타임라인</span>
+                            <span class="text-[11px] font-normal text-apple-subtle" id="routine-generated-time">방금 생성됨</span>
+                        </div>
+                        <div id="routine-timeline-items" class="space-y-2 max-h-72 overflow-y-auto pr-1 text-xs">
+                            <!-- Injected Routine Cards -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODAL 1: Schedule Add/Edit Modal -->
+    <div id="modal-schedule" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-apple-lg border border-white/40 transform transition-all scale-100">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-apple-darkText">새 일정 추가</h3>
+                <button class="btn-close-modal text-apple-subtle hover:text-apple-darkText">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <form id="schedule-form" class="space-y-3.5">
+                <div>
+                    <label class="block text-xs font-medium text-apple-subtle mb-1">날짜</label>
+                    <input type="date" id="schedule-date" required class="w-full px-3.5 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-sm focus:outline-none focus:border-apple-accent">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-apple-subtle mb-1">일정 제목</label>
+                    <input type="text" id="schedule-title" placeholder="예: 컴퓨터 구조 수업 / 도서관 근로" required class="w-full px-3.5 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-sm focus:outline-none focus:border-apple-accent">
+                </div>
+                
+                <!-- Category & Priority -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-apple-subtle mb-1">카테고리</label>
+                        <select id="schedule-category" class="w-full px-3 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-xs focus:outline-none focus:border-apple-accent">
+                            <option value="대외활동">🚀 대외활동</option>
+                            <option value="학교">🏫 학교</option>
+                            <option value="학회">🔬 학회</option>
+                            <option value="자격증">📜 자격증</option>
+                            <option value="근로" selected>💼 근로</option>
+                            <option value="기타">📌 기타</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-apple-subtle mb-1">우선순위</label>
+                        <select id="schedule-priority" class="w-full px-3 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-xs focus:outline-none focus:border-apple-accent">
+                            <option value="high">🔥 높음</option>
+                            <option value="medium" selected>⚡ 보통</option>
+                            <option value="low">🌱 낮음</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Location & Recurrence -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-apple-subtle mb-1">📍 장소 / 위치</label>
+                        <input type="text" id="schedule-location" placeholder="예: 집, 학교, 강남역" class="w-full px-3 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-xs focus:outline-none focus:border-apple-accent">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-apple-subtle mb-1">🔁 일정 반복</label>
+                        <select id="schedule-recurrence" class="w-full px-3 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-xs focus:outline-none focus:border-apple-accent">
+                            <option value="none" selected>단일 일정</option>
+                            <option value="daily">매일 반복</option>
+                            <option value="weekly">매주 반복</option>
+                            <option value="monthly">매월 반복</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-apple-subtle mb-1">시작 시간</label>
+                        <input type="time" id="schedule-time" value="09:00" class="w-full px-3.5 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-sm focus:outline-none focus:border-apple-accent">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-apple-subtle mb-1">종료 시간</label>
+                        <input type="time" id="schedule-endtime" value="13:00" class="w-full px-3.5 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-sm focus:outline-none focus:border-apple-accent">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-apple-subtle mb-1">메모 (선택사항)</label>
+                    <textarea id="schedule-desc" rows="2" placeholder="준비물 및 특이사항 입력..." class="w-full px-3.5 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-sm focus:outline-none focus:border-apple-accent resize-none"></textarea>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" class="btn-close-modal px-4 py-2.5 rounded-xl text-xs font-semibold bg-apple-bg text-apple-darkText hover:bg-gray-200 transition">취소</button>
+                    <button type="submit" class="px-4 py-2.5 rounded-xl text-xs font-semibold bg-apple-accent text-white hover:bg-apple-accentHover transition">저장하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 2: Report View Modal -->
+    <div id="modal-report" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-7 shadow-apple-lg border border-white/40 max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center mb-4 pb-3 border-b border-apple-border">
+                <div class="flex items-center gap-2">
+                    <span class="text-2xl">📋</span>
+                    <div>
+                        <h3 class="text-lg font-bold text-apple-darkText">업무 & 일정 종합 리포트</h3>
+                        <p class="text-xs text-apple-subtle">카테고리 및 우선순위 통계 요약</p>
+                    </div>
+                </div>
+                <button class="btn-close-modal text-apple-subtle hover:text-apple-darkText">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3 mb-4">
+                <div class="bg-apple-bg p-3.5 rounded-2xl text-center">
+                    <div class="text-xs text-apple-subtle">전체 To-Do</div>
+                    <div id="rep-stat-total" class="text-xl font-extrabold text-apple-darkText mt-0.5">0</div>
+                </div>
+                <div class="bg-green-50 p-3.5 rounded-2xl text-center border border-green-100">
+                    <div class="text-xs text-apple-success font-medium">완료된 작업</div>
+                    <div id="rep-stat-done" class="text-xl font-extrabold text-apple-success mt-0.5">0</div>
+                </div>
+                <div class="bg-blue-50 p-3.5 rounded-2xl text-center border border-blue-100">
+                    <div class="text-xs text-apple-accent font-medium">진행 중인 작업</div>
+                    <div id="rep-stat-pending" class="text-xl font-extrabold text-apple-accent mt-0.5">0</div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-hidden flex flex-col mb-4">
+                <label class="block text-xs font-semibold text-apple-subtle mb-1.5">리포트 텍스트 미리보기</label>
+                <textarea id="report-text-area" readonly class="w-full flex-1 p-4 rounded-2xl bg-gray-900 text-gray-100 font-mono text-xs leading-relaxed resize-none focus:outline-none shadow-inner overflow-y-auto"></textarea>
+            </div>
+
+            <div class="flex flex-wrap sm:flex-nowrap justify-end gap-2.5">
+                <button id="btn-copy-report" class="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-apple-bg text-apple-darkText text-xs font-semibold hover:bg-gray-200 transition flex items-center justify-center gap-1.5">
+                    <span>내용 복사</span>
+                </button>
+                <button id="btn-download-txt-report" class="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-apple-accent text-white text-xs font-semibold hover:bg-apple-accentHover transition flex items-center justify-center gap-1.5 shadow-sm">
+                    <span>텍스트 파일 저장 (.txt)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: Realtime Cloud Sync Modal -->
+    <div id="modal-cloud" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-apple-lg border border-white/40 space-y-4">
+            <div class="flex justify-between items-center border-b border-apple-border pb-3">
+                <div>
+                    <h3 class="text-lg font-bold text-apple-darkText">⚡ 실시간 Cloud 연동</h3>
+                    <p class="text-xs text-apple-subtle">룸 코드로 모든 기기 실시간 동기화</p>
+                </div>
+                <button class="btn-close-modal text-apple-subtle hover:text-apple-darkText">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <p class="text-xs text-apple-subtle">
+                    컴퓨터, 아이패드, 핸드폰에 동일한 <b>동기화 룸 코드</b>를 입력하면 수정하는 즉시 모든 기기에 실시간 반영됩니다.
+                </p>
+                <div>
+                    <label class="block text-xs font-semibold text-apple-darkText mb-1">동기화 룸 코드 (자유롭게 입력)</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="cloud-room-code" placeholder="예: MY-ROOM-77" class="flex-1 px-3.5 py-2.5 rounded-xl bg-apple-bg border border-apple-border text-sm font-bold uppercase tracking-wider focus:outline-none focus:border-apple-accent">
+                        <button id="btn-connect-room" class="px-4 py-2.5 rounded-xl bg-apple-accent text-white text-xs font-bold hover:bg-apple-accentHover transition">
+                            연동하기
+                        </button>
+                    </div>
+                </div>
+
+                <div id="cloud-connection-msg" class="p-3 rounded-2xl bg-gray-50 border border-apple-border text-xs text-apple-subtle">
+                    현재 상태: <b>로컬 전용 (서버 미연동)</b>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 4: Manual Data Backup Modal -->
+    <div id="modal-sync" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-apple-lg border border-white/40 space-y-4">
+            <div class="flex justify-between items-center border-b border-apple-border pb-3">
+                <div>
+                    <h3 class="text-lg font-bold text-apple-darkText">📱 파일 백업 & 복원</h3>
+                    <p class="text-xs text-apple-subtle">JSON 파일로 안전하게 백업 및 이전</p>
+                </div>
+                <button class="btn-close-modal text-apple-subtle hover:text-apple-darkText">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <div class="p-3.5 bg-blue-50 rounded-2xl border border-blue-100 text-xs text-blue-900 space-y-1">
+                    <p class="font-bold">💡 데이터 이동 수동 방법:</p>
+                    <p>1. 현재 기기에서 <b>내보내기</b>를 눌러 `.json` 파일을 저장합니다.</p>
+                    <p>2. 새 기기에서 <b>불러오기</b>를 선택하면 데이터가 복원됩니다.</p>
+                </div>
+
+                <div class="flex gap-2">
+                    <button id="btn-export-json" class="flex-1 py-3 rounded-2xl bg-apple-accent text-white font-bold text-xs hover:bg-apple-accentHover transition shadow-sm">
+                        💾 데이터 내보내기 (.json)
+                    </button>
+                    <label class="flex-1 py-3 rounded-2xl bg-apple-bg text-apple-darkText border border-apple-border font-bold text-xs hover:bg-gray-200 transition shadow-sm text-center cursor-pointer">
+                        📂 데이터 불러오기
+                        <input type="file" id="input-import-json" accept=".json" class="hidden">
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Complete Application Logic Script -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // Category Styling Config Map
+            const CATEGORIES = {
+                '대외활동': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
+                '학교': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500' },
+                '학회': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-500' },
+                '자격증': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-500' },
+                '근로': { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', dot: 'bg-rose-500' },
+                '기타': { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-200', dot: 'bg-gray-500' }
+            };
+
+            const PRIORITIES = {
+                'high': { label: '🔥 높음', weight: 3, badge: 'bg-red-50 text-red-600 border-red-200' },
+                'medium': { label: '⚡ 보통', weight: 2, badge: 'bg-orange-50 text-orange-600 border-orange-200' },
+                'low': { label: '🌱 낮음', weight: 1, badge: 'bg-green-50 text-green-600 border-green-200' }
+            };
+
+            // App Global State
+            let currentDate = new Date();
+            let selectedDateStr = formatDateKey(new Date());
+            let activeCategoryFilter = 'all';
+            let userGpsLocation = null;
+
+            const STORAGE_TODOS = 'apple_planner_todos_v3';
+            const STORAGE_EVENTS = 'apple_planner_events_v3';
+            const STORAGE_ROOM = 'apple_planner_room_code';
+
+            // Realtime Firebase Synchronization State (초기화 참조 에러 방지를 위해 상단 이동)
+            let cloudRoomCode = localStorage.getItem(STORAGE_ROOM) || '';
+            let firestoreDb = null;
+            let unsubscribeSnapshot = null;
+
+            let todos = JSON.parse(localStorage.getItem(STORAGE_TODOS) || '[]');
+            let events = JSON.parse(localStorage.getItem(STORAGE_EVENTS) || '[]');
+
+            // Default seed data if completely empty
+            if (todos.length === 0 && events.length === 0) {
+                const todayStr = formatDateKey(new Date());
+                todos = [
+                    { id: 't1', text: '정보처리기사 기출 1회 풀이', category: '자격증', priority: 'high', recurrence: 'none', completed: false, completedAt: null, createdAt: todayStr },
+                    { id: 't2', text: '전공 요약노트 제출', category: '학교', priority: 'medium', recurrence: 'none', completed: true, completedAt: `${todayStr} 09:15`, createdAt: todayStr }
+                ];
+                events = [
+                    { id: 'e1', date: todayStr, title: '도서관 아르바이트 근로', category: '근로', priority: 'high', time: '09:00', endTime: '13:00', location: '중앙도서관', recurrence: 'none', desc: '데스크 및 서가 정리' },
+                    { id: 'e2', date: todayStr, title: '컴퓨터 구조 수강', category: '학교', priority: 'medium', time: '14:00', endTime: '16:00', location: '공학관 301호', recurrence: 'none', desc: '중간고사 범위 리뷰' }
+                ];
+                saveData();
+            }
+
+            // Confetti Fireworks Engine
+            const confettiCanvas = document.getElementById('confetti-canvas');
+            const ctx = confettiCanvas.getContext('2d');
+            let particles = [];
+            let animationFrameId = null;
+
+            function resizeCanvas() {
+                confettiCanvas.width = window.innerWidth;
+                confettiCanvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+
+            function triggerConfetti() {
+                const colors = ['#0071E3', '#34C759', '#FF9500', '#FF3B30', '#AF52DE'];
+                for (let i = 0; i < 70; i++) {
+                    particles.push({
+                        x: window.innerWidth / 2,
+                        y: window.innerHeight / 2 + 60,
+                        vx: (Math.random() - 0.5) * 16,
+                        vy: (Math.random() - 0.8) * 18 - 4,
+                        size: Math.random() * 7 + 4,
+                        color: colors[Math.floor(Math.random() * colors.length)],
+                        rotation: Math.random() * 360,
+                        rSpeed: (Math.random() - 0.5) * 10,
+                        opacity: 1,
+                        gravity: 0.35
+                    });
+                }
+                if (!animationFrameId) animateConfetti();
+            }
+
+            function animateConfetti() {
+                ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const p = particles[i];
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += p.gravity;
+                    p.rotation += p.rSpeed;
+                    p.opacity -= 0.012;
+
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate((p.rotation * Math.PI) / 180);
+                    ctx.globalAlpha = Math.max(0, p.opacity);
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+                    ctx.restore();
+
+                    if (p.opacity <= 0 || p.y > window.innerHeight) {
+                        particles.splice(i, 1);
+                    }
+                }
+                if (particles.length > 0) {
+                    animationFrameId = requestAnimationFrame(animateConfetti);
+                } else {
+                    animationFrameId = null;
+                }
+            }
+
+            // Storage & Utility Functions
+            function saveData() {
+                localStorage.setItem(STORAGE_TODOS, JSON.stringify(todos));
+                localStorage.setItem(STORAGE_EVENTS, JSON.stringify(events));
+                pushToCloudIfConnected();
+            }
+
+            function formatDateKey(d) {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            }
+
+            function formatDateTimeNow() {
+                const now = new Date();
+                const dateStr = formatDateKey(now);
+                const hh = String(now.getHours()).padStart(2, '0');
+                const mm = String(now.getMinutes()).padStart(2, '0');
+                return `${dateStr} ${hh}:${mm}`;
+            }
+
+            function showToast(msg) {
+                const container = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                toast.className = 'px-4 py-3 rounded-2xl bg-apple-darkText/90 text-white text-xs font-medium shadow-apple-md backdrop-blur-md transition-all duration-300 transform translate-y-2 opacity-0 flex items-center gap-2 pointer-events-auto';
+                toast.innerHTML = `<span>✨</span> <span>${msg}</span>`;
+                container.appendChild(toast);
+
+                setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
+                setTimeout(() => {
+                    toast.classList.add('opacity-0', 'translate-y-2');
+                    setTimeout(() => toast.remove(), 300);
+                }, 2500);
+            }
+
+            function escapeHtml(str) {
+                return (str || '').replace(/[&<>"']/g, (m) => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+                })[m]);
+            }
+
+            // Browser Native Push Notifications
+            function requestNotificationPermission() {
+                if (!("Notification" in window)) {
+                    showToast('이 브라우저는 알림을 지원하지 않습니다.');
+                    return;
+                }
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        document.getElementById('notification-icon').innerText = '🔔';
+                        document.getElementById('notification-text').innerText = '알림 활성화됨';
+                        sendBrowserPushNotification('Smart Planner Pro', '브라우저 알림이 성공적으로 설정되었습니다!');
+                    } else {
+                        showToast('알림 권한이 거부되었습니다.');
+                    }
+                });
+            }
+
+            function sendBrowserPushNotification(title, body) {
+                if ("Notification" in window && Notification.permission === "granted") {
+                    new Notification(title, {
+                        body: body,
+                        icon: 'https://cdn-icons-png.flaticon.com/512/3652/3652191.png'
+                    });
+                }
+            }
+
+            // Header Date Render
+            function renderHeaderDate() {
+                const now = new Date();
+                const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+                document.getElementById('header-today-str').innerText = now.toLocaleDateString('ko-KR', options);
+            }
+
+            // Check Recurring Match
+            function isEventMatchingDate(ev, targetDateStr) {
+                if (ev.date === targetDateStr) return true;
+                if (!ev.recurrence || ev.recurrence === 'none') return false;
+
+                const evDate = new Date(ev.date);
+                const targetDate = new Date(targetDateStr);
+                if (targetDate < evDate) return false;
+
+                if (ev.recurrence === 'daily') return true;
+                if (ev.recurrence === 'weekly') return evDate.getDay() === targetDate.getDay();
+                if (ev.recurrence === 'monthly') return evDate.getDate() === targetDate.getDate();
+
+                return false;
+            }
+
+            // Render Monthly Calendar Grid
+            function renderCalendar() {
+                const year = currentDate.getFullYear();
+                const month = currentDate.getMonth();
+
+                document.getElementById('calendar-month-year').innerText = `${year}년 ${month + 1}월`;
+
+                const firstDay = new Date(year, month, 1).getDay();
+                const lastDate = new Date(year, month + 1, 0).getDate();
+                const prevMonthLastDate = new Date(year, month, 0).getDate();
+
+                const grid = document.getElementById('calendar-grid');
+                grid.innerHTML = '';
+                const todayStr = formatDateKey(new Date());
+
+                // Filler for prev month
+                for (let i = firstDay - 1; i >= 0; i--) {
+                    const dayDiv = document.createElement('div');
+                    dayDiv.className = 'h-14 sm:h-16 rounded-2xl p-1 text-xs text-apple-subtle/30 bg-apple-bg/30 pointer-events-none';
+                    dayDiv.innerText = prevMonthLastDate - i;
+                    grid.appendChild(dayDiv);
+                }
+
+                // Current Month Days
+                for (let date = 1; date <= lastDate; date++) {
+                    const monthStr = String(month + 1).padStart(2, '0');
+                    const dateStr = String(date).padStart(2, '0');
+                    const formattedKey = `${year}-${monthStr}-${dateStr}`;
+
+                    let dayEvents = events.filter(e => isEventMatchingDate(e, formattedKey));
+                    if (activeCategoryFilter !== 'all') {
+                        dayEvents = dayEvents.filter(e => e.category === activeCategoryFilter);
+                    }
+
+                    const isToday = formattedKey === todayStr;
+                    const isSelected = formattedKey === selectedDateStr;
+
+                    const dayBtn = document.createElement('button');
+                    dayBtn.type = 'button';
+                    
+                    let baseStyle = 'h-14 sm:h-16 rounded-2xl p-1.5 text-xs calendar-day-btn flex flex-col justify-between items-start border relative overflow-hidden ';
+                    if (isSelected) {
+                        baseStyle += 'border-apple-accent bg-blue-50/70 font-bold ring-2 ring-apple-accent/20 ';
+                    } else if (isToday) {
+                        baseStyle += 'border-apple-accent/40 bg-white font-semibold text-apple-accent ';
+                    } else {
+                        baseStyle += 'border-transparent bg-apple-bg/60 hover:bg-white hover:border-apple-border text-apple-darkText ';
+                    }
+                    dayBtn.className = baseStyle;
+
+                    const numSpan = document.createElement('span');
+                    numSpan.className = isToday ? 'w-5 h-5 rounded-full bg-apple-accent text-white flex items-center justify-center text-[11px]' : 'text-xs';
+                    numSpan.innerText = date;
+                    dayBtn.appendChild(numSpan);
+
+                    if (dayEvents.length > 0) {
+                        const eventContainer = document.createElement('div');
+                        eventContainer.className = 'w-full flex flex-col gap-0.5 mt-0.5';
+
+                        dayEvents.slice(0, 2).forEach(ev => {
+                            const catStyle = CATEGORIES[ev.category] || CATEGORIES['기타'];
+                            const badge = document.createElement('div');
+                            badge.className = `text-[9px] px-1 py-0.2 rounded-md font-medium truncate text-left w-full ${catStyle.bg} ${catStyle.text}`;
+                            badge.innerText = `${ev.recurrence && ev.recurrence !== 'none' ? '🔁 ' : ''}${ev.title}`;
+                            eventContainer.appendChild(badge);
+                        });
+
+                        if (dayEvents.length > 2) {
+                            const more = document.createElement('div');
+                            more.className = 'text-[9px] text-apple-subtle font-medium pl-0.5';
+                            more.innerText = `+${dayEvents.length - 2}`;
+                            eventContainer.appendChild(more);
+                        }
+
+                        dayBtn.appendChild(eventContainer);
+                    }
+
+                    dayBtn.addEventListener('click', () => {
+                        selectedDateStr = formattedKey;
+                        renderCalendar();
+                        renderSelectedDateEvents();
+                    });
+
+                    grid.appendChild(dayBtn);
+                }
+            }
+
+            // Render Selected Date Events List
+            function renderSelectedDateEvents() {
+                const titleEl = document.getElementById('selected-date-title');
+                const listEl = document.getElementById('selected-date-events');
+
+                titleEl.innerText = `${selectedDateStr} 등록된 일정`;
+                let matchedEvents = events.filter(e => isEventMatchingDate(e, selectedDateStr));
+
+                if (activeCategoryFilter !== 'all') {
+                    matchedEvents = matchedEvents.filter(e => e.category === activeCategoryFilter);
+                }
+
+                listEl.innerHTML = '';
+
+                if (matchedEvents.length === 0) {
+                    listEl.innerHTML = `<div class="text-xs text-apple-subtle text-center py-4 bg-apple-bg/50 rounded-2xl">등록된 일정이 없습니다.</div>`;
+                    return;
+                }
+
+                matchedEvents.forEach(ev => {
+                    const catStyle = CATEGORIES[ev.category] || CATEGORIES['기타'];
+                    const prioStyle = PRIORITIES[ev.priority] || PRIORITIES['medium'];
+
+                    const card = document.createElement('div');
+                    card.className = 'p-3 rounded-2xl bg-apple-bg/80 border border-apple-border/70 flex items-center justify-between gap-2 hover:bg-white hover:shadow-apple-sm transition';
+                    card.innerHTML = `
+                        <div class="flex-1 min-w-0 space-y-1">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="font-bold text-xs text-apple-darkText truncate">${escapeHtml(ev.title)}</span>
+                                <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold ${catStyle.bg} ${catStyle.text} border ${catStyle.border}">${ev.category || '기타'}</span>
+                                <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold ${prioStyle.badge}">${prioStyle.label}</span>
+                                ${ev.recurrence && ev.recurrence !== 'none' ? `<span class="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-200 text-gray-700">🔁 ${ev.recurrence}</span>` : ''}
+                            </div>
+                            <div class="flex items-center gap-2 text-[11px] text-apple-subtle flex-wrap">
+                                <span>⏰ ${ev.time || '종일'} ${ev.endTime ? '~ ' + ev.endTime : ''}</span>
+                                ${ev.location ? `<span class="font-semibold text-apple-darkText">📍 ${escapeHtml(ev.location)}</span>` : ''}
+                                ${ev.desc ? `<span class="truncate">| ${escapeHtml(ev.desc)}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <button class="btn-export-single-ics p-1.5 rounded-lg text-apple-subtle hover:text-apple-accent hover:bg-gray-100 transition" title="Apple 캘린더 파일 내보내기">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                            </button>
+                            <button class="btn-delete-event p-1.5 rounded-lg text-apple-subtle hover:text-apple-danger hover:bg-gray-100 transition" title="삭제">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            </button>
+                        </div>
+                    `;
+
+                    card.querySelector('.btn-export-single-ics').addEventListener('click', () => {
+                        exportToIcs([ev], `event_${ev.date}_${ev.id}.ics`);
+                    });
+
+                    card.querySelector('.btn-delete-event').addEventListener('click', () => {
+                        events = events.filter(e => e.id !== ev.id);
+                        saveData();
+                        renderCalendar();
+                        renderSelectedDateEvents();
+                        showToast('일정이 삭제되었습니다.');
+                    });
+
+                    listEl.appendChild(card);
+                });
+            }
+
+            // Render Today's To-Do Items
+            function renderTodos() {
+                const todoListEl = document.getElementById('todo-list');
+                const badgeEl = document.getElementById('todo-count-badge');
+                const sortMode = document.getElementById('todo-sort-select').value;
+                todoListEl.innerHTML = '';
+
+                const completedCount = todos.filter(t => t.completed).length;
+                badgeEl.innerText = `${completedCount} / ${todos.length} 완료`;
+
+                if (todos.length === 0) {
+                    todoListEl.innerHTML = `
+                        <div class="text-center py-8 text-apple-subtle">
+                            <p class="text-xs">등록된 할 일이 없습니다. 상단에서 추가하세요!</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let sortedTodos = [...todos];
+                if (sortMode === 'priority') {
+                    sortedTodos.sort((a, b) => {
+                        const wA = PRIORITIES[a.priority]?.weight || 2;
+                        const wB = PRIORITIES[b.priority]?.weight || 2;
+                        return wB - wA;
+                    });
+                } else {
+                    sortedTodos.sort((a, b) => b.id - a.id);
+                }
+
+                sortedTodos.forEach(todo => {
+                    const catStyle = CATEGORIES[todo.category] || CATEGORIES['기타'];
+                    const prioStyle = PRIORITIES[todo.priority] || PRIORITIES['medium'];
+
+                    const item = document.createElement('div');
+                    item.className = `p-3 rounded-2xl border transition-all duration-200 flex items-start justify-between gap-2.5 ${
+                        todo.completed 
+                            ? 'bg-gray-50/70 border-apple-border/60 text-apple-subtle' 
+                            : 'bg-white border-apple-border shadow-apple-sm hover:border-apple-accent/30'
+                    }`;
+
+                    item.innerHTML = `
+                        <div class="flex items-start gap-2.5 min-w-0 flex-1">
+                            <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                                class="todo-checkbox mt-1 w-4 h-4 rounded border-apple-border text-apple-accent focus:ring-0 cursor-pointer accent-apple-accent">
+                            <div class="flex-1 min-w-0 space-y-1">
+                                <p class="text-xs font-medium leading-relaxed break-words ${todo.completed ? 'line-through text-apple-subtle' : 'text-apple-darkText'}">
+                                    ${escapeHtml(todo.text)}
+                                </p>
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold ${catStyle.bg} ${catStyle.text} border ${catStyle.border}">${todo.category || '기타'}</span>
+                                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold ${prioStyle.badge}">${prioStyle.label}</span>
+                                    ${todo.recurrence && todo.recurrence !== 'none' ? `<span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 text-gray-600">🔁 ${todo.recurrence}</span>` : ''}
+                                    ${todo.completed && todo.completedAt ? `
+                                        <span class="text-[9px] font-semibold text-apple-success bg-green-50 px-1.5 py-0.2 rounded border border-green-100">
+                                            완료: ${todo.completedAt}
+                                        </span>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn-delete-todo text-apple-subtle hover:text-apple-danger p-1 rounded-lg hover:bg-gray-100 transition">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    `;
+
+                    item.querySelector('.todo-checkbox').addEventListener('change', (e) => {
+                        const isChecked = e.target.checked;
+                        todo.completed = isChecked;
+                        todo.completedAt = isChecked ? formatDateTimeNow() : null;
+
+                        saveData();
+                        renderTodos();
+
+                        if (isChecked) {
+                            triggerConfetti();
+                            showToast('작업 완료! 🎉');
+                        }
+                    });
+
+                    item.querySelector('.btn-delete-todo').addEventListener('click', () => {
+                        todos = todos.filter(t => t.id !== todo.id);
+                        saveData();
+                        renderTodos();
+                        showToast('삭제되었습니다.');
+                    });
+
+                    todoListEl.appendChild(item);
+                });
+            }
+
+            // Location-Aware Daily Routine Calculation Engine
+            function generateDailyRoutine() {
+                const todayStr = formatDateKey(new Date());
+                const todayEvents = events.filter(e => isEventMatchingDate(e, todayStr));
+                const uncompletedTodos = todos.filter(t => !t.completed);
+
+                const transportMode = document.getElementById('routine-transport-mode').value;
+                const allowMultitask = document.getElementById('routine-allow-multitask').checked;
+                const focusPeak = document.getElementById('routine-focus-peak').value;
+
+                const container = document.getElementById('routine-timeline-items');
+                const wrapper = document.getElementById('routine-timeline-output');
+                container.innerHTML = '';
+
+                let routineSteps = [];
+
+                // Base start location
+                let currentLoc = userGpsLocation ? '현재 내 위치 (GPS)' : '집';
+
+                routineSteps.push({
+                    time: '07:30 - 08:30',
+                    title: '아침 루틴 및 하루 준비',
+                    desc: `출발지: [${currentLoc}] | 오늘 할 일 & 우선순위 최종 점검`,
+                    type: 'routine',
+                    badge: '🌱 준비'
+                });
+
+                // Calculate Event Locations & Travel Gaps
+                if (todayEvents.length > 0) {
+                    // Sort by time
+                    todayEvents.sort((a, b) => (a.time || '09:00').localeCompare(b.time || '09:00'));
+
+                    todayEvents.forEach((ev, idx) => {
+                        const targetLoc = ev.location || '목적지 장소';
+                        
+                        // Add travel step if location changed or first location
+                        let travelMins = transportMode === 'walk' ? 40 : (transportMode === 'transit' ? 30 : 20);
+                        if (currentLoc !== targetLoc) {
+                            routineSteps.push({
+                                time: `이동시간`,
+                                title: `🚗 이동: [${currentLoc}] ➔ [${targetLoc}]`,
+                                desc: `수단: ${transportMode === 'transit' ? '🚌 대중교통' : (transportMode === 'walk' ? '🚶 도보' : '🚗 자가용')} (~${travelMins}분 소요 예상)`,
+                                type: 'travel',
+                                badge: '🚗 이동'
+                            });
+                            currentLoc = targetLoc;
+                        }
+
+                        let note = ev.desc || '등록된 고정 일정';
+                        if (ev.category === '근로' && allowMultitask) {
+                            note += ' [💡 틈새시간 15분 동안 자격증/학교 과제 자습 병행 가능]';
+                        }
+                        routineSteps.push({
+                            time: `${ev.time || '09:00'} - ${ev.endTime || '12:00'}`,
+                            title: `[고정 일정] ${ev.title}`,
+                            desc: `장소: ${targetLoc} | ${note}`,
+                            type: 'event',
+                            badge: `💼 ${ev.category}`
+                        });
+                    });
+                } else {
+                    routineSteps.push({
+                        time: '09:00 - 12:00',
+                        title: '자율 몰입 업무/학습 시간',
+                        desc: '고정 일정이 없는 자율 시간대 - 핵심 To-Do 몰입 추천',
+                        type: 'free',
+                        badge: '⚡ 자율'
+                    });
+                }
+
+                // Lunch Break
+                routineSteps.push({
+                    time: '12:00 - 13:00',
+                    title: '점심 식사 및 산책',
+                    desc: '뇌 휴식 및 원기 회복',
+                    type: 'break',
+                    badge: '🍱 휴식'
+                });
+
+                // High Priority Task Focus Block
+                const highPrio = uncompletedTodos.filter(t => t.priority === 'high');
+                const mediumPrio = uncompletedTodos.filter(t => t.priority !== 'high');
+
+                let focusTimeText = '13:00 - 17:00';
+                if (focusPeak === 'evening') focusTimeText = '18:00 - 21:00';
+                if (focusPeak === 'night') focusTimeText = '21:00 - 00:00';
+
+                let taskDesc = '우선순위 작업 실행: ';
+                if (highPrio.length > 0) {
+                    taskDesc += highPrio.map(t => `"${t.text}"`).join(', ');
+                } else if (mediumPrio.length > 0) {
+                    taskDesc += mediumPrio.map(t => `"${t.text}"`).join(', ');
+                } else {
+                    taskDesc += '현재 남아있는 할 일이 없습니다. 자유 복습시간!';
+                }
+
+                routineSteps.push({
+                    time: focusTimeText,
+                    title: `✨ 피크 집중 시간대 (${focusPeak.toUpperCase()} 권장)`,
+                    desc: taskDesc,
+                    type: 'focus',
+                    badge: '🔥 최고 집중'
+                });
+
+                // Night Wrapup
+                routineSteps.push({
+                    time: '22:00 - 23:00',
+                    title: '하루 리포트 정리 및 마감',
+                    desc: 'To-Do 체크리스트 확인 및 내일 일정 5분 정돈',
+                    type: 'wrapup',
+                    badge: '🌙 마감'
+                });
+
+                // Render Timeline step cards
+                routineSteps.forEach(step => {
+                    const card = document.createElement('div');
+                    let borderBg = 'bg-apple-bg/70 border-apple-border/60';
+                    if (step.type === 'focus') borderBg = 'bg-amber-50/80 border-amber-200 text-amber-900';
+                    if (step.type === 'event') borderBg = 'bg-blue-50/80 border-blue-200 text-blue-900';
+                    if (step.type === 'travel') borderBg = 'bg-purple-50/80 border-purple-200 text-purple-900';
+
+                    card.className = `p-3 rounded-2xl border ${borderBg} flex flex-col gap-1 transition hover:shadow-apple-sm`;
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-xs text-apple-accent">${step.time}</span>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/80 border border-black/5 shadow-2xs">${step.badge}</span>
+                        </div>
+                        <h4 class="font-bold text-xs text-apple-darkText">${escapeHtml(step.title)}</h4>
+                        <p class="text-[11px] text-apple-subtle leading-tight">${escapeHtml(step.desc)}</p>
+                    `;
+                    container.appendChild(card);
+                });
+
+                document.getElementById('routine-generated-time').innerText = `생성시각: ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`;
+                wrapper.classList.remove('hidden');
+                showToast('위치 기반 스마트 하루 루틴이 생성되었습니다!');
+            }
+
+            // Apple Calendar (.ics) Export
+            function exportToIcs(eventList, filename = 'calendar_events.ics') {
+                if (eventList.length === 0) {
+                    showToast('내보낼 일정이 없습니다.');
+                    return;
+                }
+
+                let icsContent = [
+                    'BEGIN:VCALENDAR',
+                    'VERSION:2.0',
+                    'PRODID:-//Apple Style Smart Planner Pro//KR',
+                    'CALSCALE:GREGORIAN',
+                    'METHOD:PUBLISH'
+                ];
+
+                eventList.forEach(ev => {
+                    const dateClean = (ev.date || formatDateKey(new Date())).replace(/-/g, '');
+                    const startTimeClean = (ev.time || '09:00').replace(':', '') + '00';
+                    const endTimeClean = (ev.endTime || '10:00').replace(':', '') + '00';
+
+                    icsContent.push(
+                        'BEGIN:VEVENT',
+                        `UID:${ev.id}@smartplanner.app`,
+                        `DTSTAMP:${dateClean}T000000Z`,
+                        `DTSTART:${dateClean}T${startTimeClean}`,
+                        `DTEND:${dateClean}T${endTimeClean}`,
+                        `SUMMARY:[${ev.category || '일정'}] ${ev.title}`,
+                        `LOCATION:${ev.location || ''}`,
+                        `DESCRIPTION:${ev.desc || ''} (우선순위: ${ev.priority || 'medium'})`,
+                        'STATUS:CONFIRMED',
+                        'END:VEVENT'
+                    );
+                });
+
+                icsContent.push('END:VCALENDAR');
+
+                const blob = new Blob([icsContent.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showToast('.ics 파일이 다운로드되었습니다.');
+            }
+
+            // Report Generator
+            function generateReportText() {
+                const doneTodos = todos.filter(t => t.completed);
+                const pendingTodos = todos.filter(t => !t.completed);
+
+                let report = `======================================\n`;
+                report += ` 📋 SMART PLANNER PRO 종합 리포트\n`;
+                report += ` 작성 일시: ${new Date().toLocaleString('ko-KR')}\n`;
+                report += `======================================\n\n`;
+
+                report += `[ 📊 요약 통계 ]\n`;
+                report += `- 전체 To-Do: ${todos.length}개\n`;
+                report += `- 완료된 작업: ${doneTodos.length}개\n`;
+                report += `- 진행 중인 작업: ${pendingTodos.length}개\n`;
+                report += `- 등록된 총 일정 수: ${events.length}개\n\n`;
+
+                report += `--------------------------------------\n`;
+                report += `[ ✅ 완료된 작업 목록 (${doneTodos.length}개) ]\n`;
+                report += `--------------------------------------\n`;
+                if (doneTodos.length === 0) {
+                    report += ` (완료된 작업이 없습니다.)\n`;
+                } else {
+                    doneTodos.forEach((t, i) => {
+                        report += `${i + 1}. [${t.category}] ${t.text} (완료시각: ${t.completedAt || '기록없음'})\n`;
+                    });
+                }
+                report += `\n`;
+
+                report += `--------------------------------------\n`;
+                report += `[ ⏳ 진행 중인 작업 목록 (${pendingTodos.length}개) ]\n`;
+                report += `--------------------------------------\n`;
+                if (pendingTodos.length === 0) {
+                    report += ` (진행 중인 작업이 없습니다.)\n`;
+                } else {
+                    pendingTodos.forEach((t, i) => {
+                        const prioLabel = PRIORITIES[t.priority]?.label || '보통';
+                        report += `${i + 1}. [${t.category} | ${prioLabel}] ${t.text}\n`;
+                    });
+                }
+                report += `\n`;
+
+                report += `--------------------------------------\n`;
+                report += `[ 📅 주요 등록 일정 목록 (${events.length}개) ]\n`;
+                report += `--------------------------------------\n`;
+                if (events.length === 0) {
+                    report += ` (등록된 일정이 없습니다.)\n`;
+                } else {
+                    events.forEach((ev, i) => {
+                        report += `${i + 1}. [${ev.date}] [${ev.category}] ${ev.title} (${ev.time || '종일'})${ev.location ? ' @ ' + ev.location : ''}${ev.desc ? ' - ' + ev.desc : ''}\n`;
+                    });
+                }
+
+                report += `\n======================================\n`;
+                return report;
+            }
+
+            // Realtime Firebase Synchronization Logic
+            function initFirebaseCloud() {
+                try {
+                    const firebaseConfig = {
+                        apiKey: "AIzaSyDemoPlannerKeyForSyncOnly",
+                        authDomain: "smart-planner-sync.firebaseapp.com",
+                        projectId: "smart-planner-sync",
+                        storageBucket: "smart-planner-sync.appspot.com",
+                        messagingSenderId: "123456789",
+                        appId: "1:123456789:web:demo"
+                    };
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    }
+                    firestoreDb = firebase.firestore();
+                    if (cloudRoomCode) {
+                        connectToRoom(cloudRoomCode, false);
+                    }
+                } catch (err) {
+                    console.log('Cloud Sync Local fallback mode.');
+                }
+            }
+
+            function connectToRoom(code, notify = true) {
+                if (!code || !firestoreDb) return;
+                cloudRoomCode = code.trim().toUpperCase();
+                localStorage.setItem(STORAGE_ROOM, cloudRoomCode);
+
+                const statusDot = document.getElementById('cloud-status-dot');
+                const statusMsg = document.getElementById('cloud-connection-msg');
+                
+                statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse';
+                statusMsg.innerHTML = `실시간 연동 중: <b>룸 [${cloudRoomCode}]</b>`;
+
+                if (unsubscribeSnapshot) unsubscribeSnapshot();
+
+                unsubscribeSnapshot = firestoreDb.collection('planner_rooms').doc(cloudRoomCode)
+                    .onSnapshot(doc => {
+                        if (doc.exists) {
+                            const data = doc.data();
+                            if (data.todos) todos = data.todos;
+                            if (data.events) events = data.events;
+                            localStorage.setItem(STORAGE_TODOS, JSON.stringify(todos));
+                            localStorage.setItem(STORAGE_EVENTS, JSON.stringify(events));
+                            renderCalendar();
+                            renderSelectedDateEvents();
+                            renderTodos();
+                        }
+                    }, err => {
+                        console.log('Snapshot fallback local sync mode.');
+                    });
+
+                if (notify) showToast(`룸 [${cloudRoomCode}]에 연결되었습니다!`);
+            }
+
+            function pushToCloudIfConnected() {
+                if (!cloudRoomCode || !firestoreDb) return;
+                firestoreDb.collection('planner_rooms').doc(cloudRoomCode).set({
+                    todos: todos,
+                    events: events,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true }).catch(err => console.log('Local fallback'));
+            }
+
+            // Event Listener Bindings Setup
+            function bindEvents() {
+                // Calendar Controls
+                document.getElementById('btn-prev-month').addEventListener('click', () => {
+                    currentDate.setMonth(currentDate.getMonth() - 1);
+                    renderCalendar();
+                });
+                document.getElementById('btn-next-month').addEventListener('click', () => {
+                    currentDate.setMonth(currentDate.getMonth() + 1);
+                    renderCalendar();
+                });
+                document.getElementById('btn-today-cal').addEventListener('click', () => {
+                    currentDate = new Date();
+                    selectedDateStr = formatDateKey(new Date());
+                    renderCalendar();
+                    renderSelectedDateEvents();
+                });
+
+                // Category Quick Filter Buttons
+                document.querySelectorAll('.cat-filter-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        document.querySelectorAll('.cat-filter-btn').forEach(b => {
+                            b.className = 'cat-filter-btn px-3 py-1 rounded-xl bg-apple-bg text-apple-darkText border border-apple-border text-xs';
+                        });
+                        e.target.className = 'cat-filter-btn px-3 py-1 rounded-xl bg-apple-darkText text-white text-xs font-medium';
+                        activeCategoryFilter = e.target.getAttribute('data-cat');
+                        renderCalendar();
+                        renderSelectedDateEvents();
+                    });
+                });
+
+                // Push Notification Button
+                document.getElementById('btn-request-notification').addEventListener('click', requestNotificationPermission);
+
+                // GPS Location Reader
+                document.getElementById('btn-get-location').addEventListener('click', () => {
+                    if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition((pos) => {
+                            userGpsLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                            document.getElementById('gps-location-tag').classList.remove('hidden');
+                            showToast('GPS 현재 위치가 읽혀졌습니다.');
+                        }, () => {
+                            showToast('위치 권한을 읽을 수 없어 기본 장소로 설정됩니다.');
+                        });
+                    }
+                });
+
+                // Schedule Modal Add logic
+                const scheduleModal = document.getElementById('modal-schedule');
+                document.getElementById('btn-add-schedule-modal').addEventListener('click', () => {
+                    document.getElementById('schedule-date').value = selectedDateStr;
+                    scheduleModal.classList.remove('hidden');
+                });
+
+                document.querySelectorAll('.btn-close-modal').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.getElementById('modal-schedule').classList.add('hidden');
+                        document.getElementById('modal-report').classList.add('hidden');
+                        document.getElementById('modal-cloud').classList.add('hidden');
+                        document.getElementById('modal-sync').classList.add('hidden');
+                    });
+                });
+
+                document.getElementById('schedule-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const date = document.getElementById('schedule-date').value;
+                    const title = document.getElementById('schedule-title').value.trim();
+                    const category = document.getElementById('schedule-category').value;
+                    const priority = document.getElementById('schedule-priority').value;
+                    const time = document.getElementById('schedule-time').value;
+                    const endTime = document.getElementById('schedule-endtime').value;
+                    const location = document.getElementById('schedule-location').value.trim();
+                    const recurrence = document.getElementById('schedule-recurrence').value;
+                    const desc = document.getElementById('schedule-desc').value.trim();
+
+                    if (!title) return;
+
+                    const newEv = {
+                        id: Date.now().toString(),
+                        date, title, category, priority, time, endTime, location, recurrence, desc
+                    };
+                    events.push(newEv);
+
+                    saveData();
+                    renderCalendar();
+                    renderSelectedDateEvents();
+                    scheduleModal.classList.add('hidden');
+                    document.getElementById('schedule-form').reset();
+                    showToast('일정이 추가되었습니다.');
+
+                    // Trigger Push Notification if Urgent (🔥)
+                    if (priority === 'high') {
+                        sendBrowserPushNotification('🔥 긴급 일정 등록됨', `[${title}] 일정 이(가) 추가되었습니다.`);
+                    }
+                });
+
+                // To-Do Submit Form
+                document.getElementById('todo-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const input = document.getElementById('todo-input');
+                    const text = input.value.trim();
+                    const category = document.getElementById('todo-category').value;
+                    const priority = document.getElementById('todo-priority').value;
+                    const recurrence = document.getElementById('todo-recurrence').value;
+
+                    if (!text) return;
+
+                    todos.unshift({
+                        id: Date.now().toString(),
+                        text, category, priority, recurrence,
+                        completed: false,
+                        completedAt: null,
+                        createdAt: formatDateKey(new Date())
+                    });
+
+                    saveData();
+                    renderTodos();
+                    input.value = '';
+                    showToast('할 일이 추가되었습니다.');
+
+                    if (priority === 'high') {
+                        sendBrowserPushNotification('🔥 긴급 To-Do 등록', text);
+                    }
+                });
+
+                document.getElementById('todo-sort-select').addEventListener('change', renderTodos);
+
+                document.getElementById('btn-clear-completed').addEventListener('click', () => {
+                    const origLen = todos.length;
+                    todos = todos.filter(t => !t.completed);
+                    if (origLen !== todos.length) {
+                        saveData();
+                        renderTodos();
+                        showToast('완료 항목이 정리되었습니다.');
+                    }
+                });
+
+                // Generate Routine
+                document.getElementById('btn-generate-routine').addEventListener('click', generateDailyRoutine);
+
+                // Report Modal Handlers
+                const reportModal = document.getElementById('modal-report');
+                document.getElementById('btn-open-report').addEventListener('click', () => {
+                    const doneCount = todos.filter(t => t.completed).length;
+                    const pendingCount = todos.filter(t => !t.completed).length;
+
+                    document.getElementById('rep-stat-total').innerText = todos.length;
+                    document.getElementById('rep-stat-done').innerText = doneCount;
+                    document.getElementById('rep-stat-pending').innerText = pendingCount;
+                    document.getElementById('report-text-area').value = generateReportText();
+
+                    reportModal.classList.remove('hidden');
+                });
+
+                document.getElementById('btn-copy-report').addEventListener('click', () => {
+                    const textArea = document.getElementById('report-text-area');
+                    textArea.select();
+                    let success = false;
+                    try { success = document.execCommand('copy'); } catch(e) { success = false; }
+                    if (!success && navigator.clipboard) {
+                        navigator.clipboard.writeText(textArea.value);
+                    }
+                    showToast('리포트가 복사되었습니다!');
+                });
+
+                document.getElementById('btn-download-txt-report').addEventListener('click', () => {
+                    const text = document.getElementById('report-text-area').value;
+                    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `Report_${formatDateKey(new Date())}.txt`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showToast('리포트 파일이 저장되었습니다.');
+                });
+
+                // Apple Calendar .ics Export
+                document.getElementById('btn-export-all-ics').addEventListener('click', () => {
+                    exportToIcs(events, `apple_calendar_all_${formatDateKey(new Date())}.ics`);
+                });
+
+                // Cloud Sync Modal Handlers
+                const cloudModal = document.getElementById('modal-cloud');
+                document.getElementById('btn-open-cloud').addEventListener('click', () => {
+                    if (cloudRoomCode) {
+                        document.getElementById('cloud-room-code').value = cloudRoomCode;
+                    }
+                    cloudModal.classList.remove('hidden');
+                });
+
+                document.getElementById('btn-connect-room').addEventListener('click', () => {
+                    const code = document.getElementById('cloud-room-code').value;
+                    if (code) {
+                        connectToRoom(code, true);
+                        cloudModal.classList.add('hidden');
+                    }
+                });
+
+                // Manual JSON Backup Handlers
+                const syncModal = document.getElementById('modal-sync');
+                document.getElementById('btn-open-sync').addEventListener('click', () => {
+                    syncModal.classList.remove('hidden');
+                });
+
+                document.getElementById('btn-export-json').addEventListener('click', () => {
+                    const dataPayload = { todos, events, exportedAt: new Date().toISOString() };
+                    const blob = new Blob([JSON.stringify(dataPayload, null, 2)], { type: 'application/json' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `planner_backup_${formatDateKey(new Date())}.json`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showToast('백업 파일이 다운로드되었습니다.');
+                });
+
+                document.getElementById('input-import-json').addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        try {
+                            const parsed = JSON.parse(event.target.result);
+                            if (parsed.todos && parsed.events) {
+                                todos = parsed.todos;
+                                events = parsed.events;
+                                saveData();
+                                renderCalendar();
+                                renderSelectedDateEvents();
+                                renderTodos();
+                                syncModal.classList.add('hidden');
+                                showToast('데이터가 정상적으로 복원되었습니다!');
+                            } else {
+                                showToast('올바르지 않은 백업 파일 형식입니다.');
+                            }
+                        } catch (err) {
+                            showToast('파일 읽기 오류가 발생했습니다.');
+                        }
+                    };
+                    reader.readAsText(file);
+                });
+            }
+
+            // Init App
+            renderHeaderDate();
+            renderCalendar();
+            renderSelectedDateEvents();
+            renderTodos();
+            bindEvents();
+            initFirebaseCloud();
+        });
+    </script>
+</body>
+</html>
